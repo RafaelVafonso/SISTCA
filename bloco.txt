@@ -1,0 +1,230 @@
+cd /
+ 1979  ls
+ 1980  cd dev
+ 1981  ls
+ 1982  ls l
+ 1983  ls -l
+ 1984  dmesg -w
+ 1985  ls -l
+ 1986  history
+
+pesquisa da pasta de comunicação esp-pc
+
+caso se use uma virtualização do genero wsl, de modo a aceder ao ficheiro de comunicação serial do esp32 é necessario:
+
+no powershell:
+usbipd list
+
+Connected:
+BUSID  VID:PID    DEVICE                                                        STATE
+2-1    1a86:7523  USB-SERIAL CH340 (COM3)                                       Shared
+2-6    1bcf:28cf  Integrated Webcam                                             Not shared
+2-8    0a5c:5843  Dell ControlVault w/ Fingerprint Touch Sensor, Contacted ...  Not shared
+2-10   8087:0026  Intel(R) Wireless Bluetooth(R)                                Not shared
+
+Persisted:
+GUID                                  DEVICE
+
+usbipd attach --wsl --busid 2-1
+
+usbipd list
+Connected:
+BUSID  VID:PID    DEVICE                                                        STATE
+2-1    1a86:7523  USB-SERIAL CH340 (COM3)                                       Attached
+2-6    1bcf:28cf  Integrated Webcam                                             Not shared
+2-8    0a5c:5843  Dell ControlVault w/ Fingerprint Touch Sensor, Contacted ...  Not shared
+2-10   8087:0026  Intel(R) Wireless Bluetooth(R)                                Not shared
+
+Persisted:
+GUID                                  DEVICE
+
+assim o dispositivo é compartilhado pelo windows e pelo linux
+
+1º compilar e dar upload ao codigo esp32
+
+2º passos em cima
+
+3º compilar e correr codigo pc
+
+___________________________________________________
+
+/*LIGAR DESLIGAR SAIDA*/
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+
+int main(int argc, char* const argv[]) {
+
+    FILE *serial = fopen("/dev/ttyUSB0", "w");
+    if(serial == NULL) {
+        perror("Erro ao abrir porta");
+        return 1;
+    }
+
+    sleep(2);
+    printf("Aguardar...");
+
+    uint16_t time = 0;
+    char *out = NULL;
+
+    if (argc == 3 && strcmp(argv[1], "-s") == 0) {
+        out = argv[2];
+    }
+    else if (argc == 5 && strcmp(argv[1], "-t") == 0 && strcmp(argv[3], "-s") == 0) {
+        time = atoi(argv[2]);
+        out = argv[4];
+    }
+    else {
+        printf("Uso:\n");
+        printf("%s -s saida\n", argv[0]);
+        printf("%s -t tempo -s saida\n", argv[0]);
+        return 1;
+    }
+
+    if(strcmp(out, "on") == 0) {
+        fprintf(serial,"1\n");
+    }
+    else if(strcmp(out, "off") == 0) {
+        fprintf(serial,"0\n");
+    }
+    else {
+        printf("Saida desconhecida\n");
+    }
+
+    fclose(serial);
+    return 0;
+}
+_______________________________________________________________________
+
+#include <Arduino.h>
+
+#define LED_PIN 22
+uint8_t flag = 0;
+void setup() {
+  Serial.begin(9600);
+  pinMode(LED_PIN, OUTPUT);
+}
+
+void loop() {
+
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+
+    if (cmd == "1") {
+      digitalWrite(LED_PIN, HIGH);
+      Serial.println("LED ON");
+      flag = 1; 
+    }
+
+    if (cmd == "0") {
+      digitalWrite(LED_PIN, LOW);
+      Serial.println("LED OFF");
+      flag = 0; 
+    }
+    if (cmd == "2"){
+      String tempoStr = Serial.readStringUntil('\n');
+      uint16_t tempo = tempoStr.toInt() * 1000;
+
+        if(flag == 1) {digitalWrite(LED_PIN, LOW); delay(tempo); digitalWrite(LED_PIN, HIGH);}
+        if(flag == 0) {digitalWrite(LED_PIN, HIGH); delay(tempo); digitalWrite(LED_PIN, LOW);}
+    }
+  }
+}
+______________________________________________________________________
+
+v1.0 codigo def saida 
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdint.h>
+
+
+int main(int argc, char* const argv[]) {
+
+    FILE *serial = fopen("/dev/ttyUSB0", "w");
+    if(serial == NULL) {
+        perror("Erro ao abrir porta");
+        return 1;
+    }
+
+
+    printf("Aguardar...\n");
+
+    uint16_t time = 0;
+    char *out = NULL;
+    char *state = NULL;
+
+    if (argc == 5 && strcmp(argv[1], "-s") == 0) {
+        out = argv[2];
+        state = argv[4];
+    }
+    else if (argc == 5 && strcmp(argv[1], "-t") == 0 && strcmp(argv[3], "-s") == 0) {
+        time = atoi(argv[2]);
+        out = argv[4];
+        state = "x"; /* prevenir segmentantion fault ao dar valor a este ponteiro*/
+    }
+    else {
+        printf("Uso:\n");
+        printf("%s -s saida -m estado (on/off)\n", argv[0]);
+        printf("%s -t tempo -s saida \n", argv[0]);
+        return 1;
+    }
+
+    if(strcmp(out, "led") == 0 && strcmp(state, "on") == 0) {
+        fprintf(serial,"1\n");
+    }
+    else if(strcmp(out, "led") == 0 && strcmp(state, "off") == 0) {
+        fprintf(serial,"0\n");
+    }
+    else if(strcmp(out, "led") == 0 && strcmp(argv[1], "-t") == 0) {
+        fprintf(serial, "2 %d\n", time); 
+    }
+    else {
+        printf("Saida desconhecida\n");
+    }
+
+    fclose(serial);
+    return 0;
+}
+
+
+esp
+
+#include <Arduino.h>
+
+#define LED_PIN 22
+uint8_t flag = 0;
+void setup() {
+  Serial.begin(9600);
+  pinMode(LED_PIN, OUTPUT);
+}
+
+void loop() {
+
+  if (Serial.available()) {
+    String cmd = Serial.readStringUntil('\n');
+    cmd.trim();
+
+    if (cmd == "0") {
+      digitalWrite(LED_PIN, LOW);
+      Serial.println("LED OFF");
+      flag = 0; 
+    }
+
+    else if (cmd == "1") {
+      digitalWrite(LED_PIN, HIGH);
+      Serial.println("LED ON");
+      flag = 1; 
+    }
+
+    else if (cmd.startsWith("2 ")) {
+    int tempo = cmd.substring(2).toInt() * 1000;
+
+        if(flag == 1) {digitalWrite(LED_PIN, LOW); delay(tempo); digitalWrite(LED_PIN, HIGH);}
+        if(flag == 0) {digitalWrite(LED_PIN, HIGH); delay(tempo); digitalWrite(LED_PIN, LOW);}
+}
+  }
+}
