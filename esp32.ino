@@ -2,10 +2,13 @@
 #include <WiFi.h>
 #include <WebServer.h>
 
+#define PWM_CHANNEL 0
+#define PWM_FREQ 5000
+#define PWM_RESOLUTION 8
 
 // --- CONFIGURAÇÃO REDE (MODO AP) ---
 const char* ssid = "ESP32";   // Nome da rede 
-const char* password = "12345%"; // Senha (min 8 caracteres)
+const char* password = "1234567%"; // Senha (min 8 caracteres)
 
 WebServer server(80);
 
@@ -59,6 +62,13 @@ const char index_html[] PROGMEM = R"rawliteral(
 
 <button style="background:orange;" onclick="invert()">INVERTER</button>
 
+<div style="margin-top:20px;">
+  <input type="range" id="pwm" min="0" max="255" value="0" 
+       oninput="updatePWM(this.value); sendCmd('3 ' + this.value)">
+  <div>PWM: <span id="pwm_val">0</span></div>
+</div>
+
+
   <h2 id="state">Estado: --</h2>
 
   <script>
@@ -77,8 +87,11 @@ const char index_html[] PROGMEM = R"rawliteral(
     sendCmd("2 " + t);
     }
   }
-
-    setInterval(() => {
+    function updatePWM(val) {
+    document.getElementById("pwm_val").innerText = val;
+  }
+  
+      setInterval(() => {
       fetch("/status")
       .then(r => r.text())
       .then(s => {
@@ -102,27 +115,46 @@ void handleCmd() {
   String v = server.arg("v");
 
   if (v == "1") {
-    digitalWrite(LED_PIN, HIGH);
+    ledcWrite(PWM_CHANNEL, 255);
     ledState = true;
   }
+
   else if (v == "0") {
-    digitalWrite(LED_PIN, LOW);
+    ledcWrite(PWM_CHANNEL, 0);
     ledState = false;
   }
-  else if (v.startsWith("2 ")) {
-    int tempo = v.substring(2).toInt() * 1000;
 
-    digitalWrite(LED_PIN, !ledState);
-    delay(tempo);
-    digitalWrite(LED_PIN, ledState);
+else if (v.startsWith("2 ")) {
+  int tempo = v.substring(2).toInt() * 1000;
+
+  int prevPWM = ledState ? 255 : 0;
+  int newPWM  = ledState ? 0   : 255;
+
+  ledcWrite(PWM_CHANNEL, newPWM);  // inverter
+  delay(tempo);
+  ledcWrite(PWM_CHANNEL, prevPWM); // voltar ao estado anterior
+}
+
+  else if (v.startsWith("3 ")) {
+    int pwm = v.substring(2).toInt();
+
+    
+    ledcWrite(PWM_CHANNEL, pwm);
+
+    ledState = (pwm > 0);
   }
+
+  server.send(200, "text/plain", "OK");
 }
 
 void setup() {
   Serial.begin(9600);
   pinMode(LED_PIN, OUTPUT);
-
-    WiFi.softAP(ssid, password);
+  ledcSetup(PWM_CHANNEL, PWM_FREQ, PWM_RESOLUTION);
+  ledcAttachPin(LED_PIN, PWM_CHANNEL);
+  Serial.begin(115200);
+  Serial.println("BOOT OK");
+  WiFi.softAP(ssid, password);
   Serial.println(WiFi.softAPIP());
 
   server.on("/", handleRoot);
@@ -140,13 +172,13 @@ void loop() {
     cmd.trim();
 
     if (cmd == "0") {
-      digitalWrite(LED_PIN, LOW);
+      ledcWrite(PWM_CHANNEL, 0);
       Serial.println("LED OFF");
       flag = 0; 
     }
 
     else if (cmd == "1") {
-      digitalWrite(LED_PIN, HIGH);
+      ledcWrite(PWM_CHANNEL, 255);
       Serial.println("LED ON");
       flag = 1; 
     }
@@ -154,8 +186,8 @@ void loop() {
     else if (cmd.startsWith("2")) {
     int tempo = cmd.substring(2).toInt() * 1000;
 
-        if(flag == 1) {digitalWrite(LED_PIN, LOW); delay(tempo); digitalWrite(LED_PIN, HIGH);}
-        if(flag == 0) {digitalWrite(LED_PIN, HIGH); delay(tempo); digitalWrite(LED_PIN, LOW);}
+        if(flag == 1) {ledcWrite(PWM_CHANNEL, 0); delay(tempo); ledcWrite(PWM_CHANNEL, 255);}
+        if(flag == 0) {ledcWrite(PWM_CHANNEL, 255); delay(tempo); ledcWrite(PWM_CHANNEL, 0);}
 }
   }
 }
